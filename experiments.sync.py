@@ -1,6 +1,6 @@
 # %%
-from collections import defaultdict
 import torch
+import torch.nn.functional as F
 import matplotlib.pyplot as plt
 
 # %matplotlib inline
@@ -75,7 +75,8 @@ s = N.sum(dim=1, keepdim=True)
 s, s.shape
 
 # %%
-P = N / N.sum(dim=1, keepdim=True)
+P = (N + 1).float()  # +1 is model smoothing
+P /= P.sum(dim=1, keepdim=True)
 P[0].sum()
 
 # %%
@@ -123,16 +124,122 @@ def nll(word):
     """Get the average negative log likelihood of a word."""
     log_likelihood = 0
     n = 0
-    chs = ["."] + list(word) + ["."]
-    for c1, c2 in zip(chs, chs[1:]):
+    chrs = ["."] + list(word) + ["."]
+    for c1, c2 in zip(chrs, chrs[1:]):
         prob = P[stoi[c1], stoi[c2]]
         logprob = torch.log(prob)
         log_likelihood += logprob
         n += 1
 
-    return -log_likelihood / (len(chs) - 1)
+    return -log_likelihood / (len(chrs) - 1)
 
 
 # %%
-for word in ["andrej", "ethan", "daniel", "asotnehu", "test", "sam"]:
+for word in ["andrej", "ethan", "daniel", "asotnehu", "test", "sam", "andrejq"]:
     print(f"nll({word})={nll(word):.4f}")
+
+# %% [markdown]
+# ## Bigram Neural Network
+
+# %% [markdown]
+# ### Get Training Data
+
+# %%
+# get x (first char in bigram) and y (second char)
+
+x, y = [], []
+
+for word in words:
+    # for word in words[:1]:
+    chrs = ["."] + list(word) + ["."]
+    for c1, c2 in zip(chrs, chrs[1:]):
+        x.append(stoi[c1])
+        y.append(stoi[c2])
+
+x = torch.tensor(x)
+y = torch.tensor(y)
+
+# %%
+# one hot encoding
+xenc = F.one_hot(x, num_classes=27).float()
+
+# %% [markdown]
+# ### Neural Network
+
+# %% [markdown]
+# #### Broken Down Steps
+
+# %%
+# initialize weights
+g = torch.Generator().manual_seed(2147483647)
+W = torch.randn((27, 27), generator=g)
+
+# %%
+# Forward pass (differentiable)
+
+# exponenitiation gets rid of negatives (-> n<1) and increases positives,
+# analagous to counts
+
+logits = xenc @ W  # log counts
+# softmax activation function
+counts = logits.exp()  # counts
+out = counts / counts.sum(dim=1, keepdims=True)  # probability
+
+# %%
+out[0]
+
+
+# %% [markdown]
+# #### Class
+
+# %%
+class BigramNN:
+    def __init__(self, seed=2147483647):
+        self.g = torch.Generator().manual_seed(seed)
+
+    def init_weights(self):
+        self.W = torch.randn((27, 27), generator=self.g, requires_grad=True)
+
+    def softmax(self, logits):
+        counts = logits.exp()
+        prob = counts / counts.sum(dim=1, keepdims=True)
+        return prob
+
+    def forward(self, x):
+        logits = x @ self.W
+        prob = self.softmax(logits)
+        return prob
+
+    def predict(self, x):
+        xenc = F.one_hot(x, num_classes=27).float()
+        prob = self.forward(xenc)
+        return torch.argmax(prob).item()
+
+    def fit(self, x, y, lr=1, epochs=100):
+        self.init_weights()
+        xenc = F.one_hot(x, num_classes=27).float()
+
+        for _ in range(epochs):
+            # forward
+            pred = self.forward(xenc)
+            loss = self.loss(pred, y)
+
+            # backward
+            self.W.grad = None
+            loss.backward()
+            self.W.data += -lr * self.W.grad  # type: ignore
+
+        pred = self.forward(xenc)
+        loss = self.loss(pred, y)
+        print(f"Final loss: {loss.item():.4f}")
+
+    def loss(self, probs, y):
+        likelihood = probs[torch.arange(y.nelement()), y]
+        loss = -likelihood.log().mean()  # nll
+        return loss
+
+
+# %%
+model = BigramNN()
+
+model.fit(x, y, lr=50, epochs=200)
