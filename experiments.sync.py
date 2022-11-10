@@ -1,4 +1,5 @@
 # %%
+from collections import defaultdict
 import torch
 import matplotlib.pyplot as plt
 
@@ -103,7 +104,35 @@ def gen_name(num=1, seed=2147483647):
 # %%
 gen_name(10)
 
+
 # %% [markdown]
 # ### Evaluation
 
+# %% [markdown]
+# Goal: maximize likelihood (normalized negative log likelihood) of the data w.r.t. model parameters
+#
+# > max likelihood \
+# > ≡ max log likelihood (log is monotonic) \
+# > ≡ min negative log likelihood \
+# > ≡ min average log likelihood
+# >
+# > $log(abc) = log(a) + log(b) + log(c)$
+
 # %%
+def nll(word):
+    """Get the average negative log likelihood of a word."""
+    log_likelihood = 0
+    n = 0
+    chs = ["."] + list(word) + ["."]
+    for c1, c2 in zip(chs, chs[1:]):
+        prob = P[stoi[c1], stoi[c2]]
+        logprob = torch.log(prob)
+        log_likelihood += logprob
+        n += 1
+
+    return -log_likelihood / (len(chs) - 1)
+
+
+# %%
+for word in ["andrej", "ethan", "daniel", "asotnehu", "test", "sam"]:
+    print(f"nll({word})={nll(word):.4f}")
