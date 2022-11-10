@@ -80,7 +80,7 @@ P /= P.sum(dim=1, keepdim=True)
 P[0].sum()
 
 # %%
-def gen_name(num=1, seed=2147483647):
+def gen_names(num=1, seed=2147483647):
     """bigram-based, weighted sampling name generator"""
     g = torch.Generator().manual_seed(seed)
     names = []
@@ -103,7 +103,7 @@ def gen_name(num=1, seed=2147483647):
 
 
 # %%
-gen_name(10)
+gen_names(10)
 
 
 # %% [markdown]
@@ -213,9 +213,9 @@ class BigramNN:
     def predict(self, x):
         xenc = F.one_hot(x, num_classes=27).float()
         prob = self.forward(xenc)
-        return torch.argmax(prob).item()
+        return prob
 
-    def fit(self, x, y, lr=1, epochs=100):
+    def fit(self, x, y, lr=1, epochs=100, reg=0.01):
         self.init_weights()
         xenc = F.one_hot(x, num_classes=27).float()
 
@@ -230,7 +230,8 @@ class BigramNN:
             self.W.data += -lr * self.W.grad  # type: ignore
 
         pred = self.forward(xenc)
-        loss = self.loss(pred, y)
+        # regularization term -> +1 (smoothing) on bigram count model
+        loss = self.loss(pred, y) + reg * (W**2).mean()
         print(f"Final loss: {loss.item():.4f}")
 
     def loss(self, probs, y):
@@ -243,3 +244,41 @@ class BigramNN:
 model = BigramNN()
 
 model.fit(x, y, lr=50, epochs=200)
+
+# %%
+model.W.sum()
+
+# %%
+model.fit(x, y, lr=50, epochs=200, reg=0)
+
+# %%
+model.W.sum()
+
+
+# %% [markdown]
+# ### Sample model
+
+# %%
+def gen_names(num=1, seed=2147483647):
+    g = torch.Generator().manual_seed(seed)
+    names = []
+
+    for _ in range(num):
+        name = ""
+        ix = 0  # start with start token [row]
+        while True:  # run until a name is generated
+            x = torch.tensor([ix])
+            p = model.predict(x)
+            ix = torch.multinomial(
+                p, num_samples=1, replacement=True, generator=g
+            ).item()
+            name += itos[ix]  # type: ignore
+            if ix == 0:  # end token
+                break
+        names.append(name)
+
+    return names
+
+
+# %%
+gen_names(5)
